@@ -1520,6 +1520,20 @@ pub type ShardArc = Arc<RwLock<Shard>>;
 /// Index wrapped in Arc and RwLock for concurrent read and write access.
 pub type IndexArc = Arc<RwLock<Index>>;
 
+/// Drain all asynchronous shard-indexing jobs already submitted to this index.
+/// This only waits for in-memory indexing and does not commit the index.
+pub async fn wait_for_pending_indexing(index: &IndexArc) {
+    let shards = index.read().await.shard_vec.clone();
+    let semaphores = shards.iter().map(|shard| async move {
+        shard.read().await.semaphore.clone()
+    });
+    for semaphore in futures::future::join_all(semaphores).await {
+        if let Ok(permit) = semaphore.acquire_owned().await {
+            drop(permit);
+        }
+    }
+}
+
 /// The shard object of the index. It contains all levels and all segments of the index.
 /// It also contains all properties that control indexing and intersection.
 pub struct Shard {
